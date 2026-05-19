@@ -249,8 +249,9 @@ fun NovexaApp(activity: MainActivity) {
     var hasPromptedForUnlock by remember { mutableStateOf(false) }
 
     MaterialTheme(colorScheme = if (darkMode) darkColorScheme() else lightColorScheme()) {
-        DisposableEffect(darkMode) {
-            activity.window.statusBarColor = MaterialTheme.colorScheme.surface.toArgb()
+        val statusBarColor = MaterialTheme.colorScheme.surface.toArgb()
+        DisposableEffect(darkMode, statusBarColor) {
+            activity.window.statusBarColor = statusBarColor
             WindowCompat.getInsetsController(activity.window, activity.window.decorView)
                 ?.isAppearanceLightStatusBars = !darkMode
             onDispose {}
