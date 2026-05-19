@@ -91,7 +91,7 @@ class MainActivity : FragmentActivity() {
 
     fun authenticate(onSuccess: () -> Unit, onFailure: () -> Unit) {
         val biometricManager = BiometricManager.from(this)
-        val authenticators = BiometricManager.Authenticators.BIOMETRIC_WEAK
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
 
         if (biometricManager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
             onFailure()
@@ -261,7 +261,6 @@ fun NovexaApp(activity: MainActivity) {
                     onSuccess = { isUnlocked = true },
                     onFailure = {
                         authError = "Biometric unlock failed. Please try again."
-                        Toast.makeText(context, "Biometric unlock failed", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -375,7 +374,9 @@ fun AccountsTab(accounts: List<AccountEntry>) {
         }
 
         items(accounts, key = { it.id }) { account ->
-            val visibleDefaults = orderedAccountFields(account.fields).filter { it.value.isNotBlank() }
+            val visibleDefaults = remember(account.id, account.fields) {
+                orderedAccountFields(account.fields).filter { it.value.isNotBlank() }
+            }
             val visibleCustom = account.customFields.filter { it.value.isNotBlank() }
 
             Card(Modifier.fillMaxWidth()) {
