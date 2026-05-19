@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import kotlinx.serialization.Serializable
@@ -69,7 +70,7 @@ import javax.crypto.spec.SecretKeySpec
 private const val MIN_PIN_LENGTH = 4
 private const val MAX_PIN_LENGTH = 8
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -84,7 +85,7 @@ class MainActivity : ComponentActivity() {
 
         if (biometricManager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
             onFailure()
-            return
+            return@MaterialTheme
         }
 
         val prompt = BiometricPrompt(
