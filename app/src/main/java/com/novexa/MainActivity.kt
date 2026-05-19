@@ -40,8 +40,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -246,12 +246,14 @@ fun NovexaApp(activity: MainActivity) {
     var tabIndex by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var vault by remember { mutableStateOf(store.loadVault()) }
+    var hasPromptedForUnlock by remember { mutableStateOf(false) }
 
     MaterialTheme(colorScheme = if (darkMode) darkColorScheme() else lightColorScheme()) {
-        SideEffect {
+        DisposableEffect(darkMode) {
             activity.window.statusBarColor = MaterialTheme.colorScheme.surface.toArgb()
             WindowCompat.getInsetsController(activity.window, activity.window.decorView)
                 ?.isAppearanceLightStatusBars = !darkMode
+            onDispose {}
         }
 
         if (!isUnlocked) {
@@ -265,8 +267,11 @@ fun NovexaApp(activity: MainActivity) {
                 )
             }
 
-            LaunchedEffect(Unit) {
-                unlock()
+            LaunchedEffect(hasPromptedForUnlock) {
+                if (!hasPromptedForUnlock) {
+                    hasPromptedForUnlock = true
+                    unlock()
+                }
             }
 
             Box(
@@ -597,14 +602,14 @@ fun SettingsDialog(
 
                 item { Text("Manage accounts") }
                 items(vault.accounts, key = { it.id }) { account ->
-                    val editableDefaults = remember(account.id, account.fields) {
+                    val editableDefaults = remember(account.id) {
                         mutableStateListOf(
                             *ACCOUNT_DEFAULT_LABELS.map { key ->
                                 account.fields.firstOrNull { it.key == key }?.value.orEmpty()
                             }.toTypedArray()
                         )
                     }
-                    val editableCustom = remember(account.id, account.customFields) {
+                    val editableCustom = remember(account.id) {
                         mutableStateListOf(*account.customFields.map { it.value }.toTypedArray())
                     }
 
@@ -651,8 +656,8 @@ fun SettingsDialog(
 
                 item { Text("Manage cards") }
                 items(vault.cards, key = { it.id }) { card ->
-                    val editableCardType = remember(card.id, card.type) { mutableStateOf(card.type) }
-                    val editableCardValues = remember(card.id, card.fields) {
+                    val editableCardType = remember(card.id) { mutableStateOf(card.type) }
+                    val editableCardValues = remember(card.id) {
                         mutableStateListOf(
                             *CARD_LABELS.map { label ->
                                 card.fields.firstOrNull { it.key == label }?.value.orEmpty()
