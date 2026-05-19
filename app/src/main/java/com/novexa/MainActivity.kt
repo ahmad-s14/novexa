@@ -85,7 +85,7 @@ class MainActivity : FragmentActivity() {
 
         if (biometricManager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
             onFailure()
-            return@MaterialTheme
+            return
         }
 
         val prompt = BiometricPrompt(
@@ -284,7 +284,7 @@ fun NovexaApp(activity: MainActivity) {
                     Text("Unlock with PIN")
                 }
             }
-            return
+            return@MaterialTheme
         }
 
         if (showSettings) {
