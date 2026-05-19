@@ -120,6 +120,7 @@ class MainActivity : FragmentActivity() {
             .setTitle("Unlock novexa")
             .setSubtitle("Use biometrics to unlock your encrypted vault")
             .setAllowedAuthenticators(authenticators)
+            .setNegativeButtonText("Cancel")
             .build()
 
         prompt.authenticate(promptInfo)
