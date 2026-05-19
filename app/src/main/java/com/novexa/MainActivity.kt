@@ -66,6 +66,9 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
+private const val MIN_PIN_LENGTH = 4
+private const val MAX_PIN_LENGTH = 8
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -265,9 +268,10 @@ fun NovexaApp(activity: MainActivity) {
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = pinInput,
-                    onValueChange = { pinInput = it.filter(Char::isDigit).take(8) },
+                    onValueChange = { pinInput = it.filter(Char::isDigit).take(MAX_PIN_LENGTH) },
                     label = { Text("PIN fallback") }
                 )
+                Text("PIN length: $MIN_PIN_LENGTH-$MAX_PIN_LENGTH digits")
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = {
                     if (store.verifyPin(pinInput)) {
@@ -555,11 +559,12 @@ fun SettingsDialog(
                 item {
                     OutlinedTextField(
                         value = pin,
-                        onValueChange = { pin = it.filter(Char::isDigit).take(8) },
+                        onValueChange = { pin = it.filter(Char::isDigit).take(MAX_PIN_LENGTH) },
                         label = { Text("Set PIN") },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Button(onClick = { if (pin.length >= 4) onSavePin(pin) }) {
+                    Text("PIN length: $MIN_PIN_LENGTH-$MAX_PIN_LENGTH digits")
+                    Button(onClick = { if (pin.length >= MIN_PIN_LENGTH) onSavePin(pin) }) {
                         Text("Save PIN")
                     }
                 }
