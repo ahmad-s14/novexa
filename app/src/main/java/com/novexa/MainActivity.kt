@@ -6,8 +6,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,17 +42,23 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
@@ -67,8 +75,15 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-private const val MIN_PIN_LENGTH = 4
-private const val MAX_PIN_LENGTH = 8
+private val ACCOUNT_DEFAULT_LABELS = listOf(
+    "Bank Name",
+    "Name",
+    "Account Number",
+    "IBAN",
+    "Phone Number",
+    "Branch"
+)
+private val CARD_DEFAULT_LABELS = listOf("Card Holder", "Card Number", "Expiry", "CVV", "Bank Name", "Notes")
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -80,8 +95,7 @@ class MainActivity : FragmentActivity() {
 
     fun authenticate(onSuccess: () -> Unit, onFailure: () -> Unit) {
         val biometricManager = BiometricManager.from(this)
-        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
-            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
 
         if (biometricManager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
             onFailure()
@@ -143,6 +157,16 @@ data class AppVault(
     val cards: List<CardEntry> = emptyList()
 )
 
+private fun normalizeAccountFields(fields: List<FieldValue>): List<FieldValue> {
+    val byKey = fields.associateBy { it.key }
+    return ACCOUNT_DEFAULT_LABELS.map { label ->
+        when (label) {
+            "Branch" -> byKey["Branch"] ?: byKey["Branch Name"] ?: FieldValue(label, "", true)
+            else -> byKey[label] ?: FieldValue(label, "", true)
+        }
+    }
+}
+
 class SecureVaultStore(private val activity: ComponentActivity) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -172,17 +196,6 @@ class SecureVaultStore(private val activity: ComponentActivity) {
 
     fun saveDarkMode(value: Boolean) {
         encryptedPrefs.edit().putBoolean("dark_mode", value).apply()
-    }
-
-    fun loadPinHash(): String? = encryptedPrefs.getString("pin_hash", null)
-
-    fun savePin(pin: String) {
-        encryptedPrefs.edit().putString("pin_hash", hash(pin)).apply()
-    }
-
-    fun verifyPin(pin: String): Boolean {
-        val current = loadPinHash() ?: return false
-        return hash(pin) == current
     }
 
     fun backup(passphrase: String): File {
@@ -221,10 +234,6 @@ class SecureVaultStore(private val activity: ComponentActivity) {
         }.getOrDefault(false)
     }
 
-    private fun hash(pin: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(pin.toByteArray())
-        .joinToString("") { "%02x".format(it) }
-
     private fun deriveKey(passphrase: String, salt: ByteArray): SecretKeySpec {
         val spec = PBEKeySpec(passphrase.toCharArray(), salt, 65_536, 256)
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
@@ -236,52 +245,75 @@ class SecureVaultStore(private val activity: ComponentActivity) {
 @Composable
 fun NovexaApp(activity: MainActivity) {
     val context = LocalContext.current
+    val view = LocalView.current
     val store = remember { SecureVaultStore(activity) }
     var isUnlocked by remember { mutableStateOf(false) }
     var darkMode by remember { mutableStateOf(store.loadDarkMode()) }
     var tabIndex by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var vault by remember { mutableStateOf(store.loadVault()) }
-    var pinInput by remember { mutableStateOf("") }
+    var authInProgress by remember { mutableStateOf(false) }
+    var authError by remember { mutableStateOf<String?>(null) }
+
+    fun startBiometricUnlock() {
+        if (authInProgress) return
+        authInProgress = true
+        authError = null
+        activity.authenticate(
+            onSuccess = {
+                isUnlocked = true
+                authInProgress = false
+            },
+            onFailure = {
+                authInProgress = false
+                authError = "Biometric unlock failed. Try again."
+            }
+        )
+    }
 
     MaterialTheme(colorScheme = if (darkMode) darkColorScheme() else lightColorScheme()) {
+        SideEffect {
+            if (!view.isInEditMode) {
+                activity.window.statusBarColor = MaterialTheme.colorScheme.surface.toArgb()
+                WindowCompat.getInsetsController(activity.window, view).isAppearanceLightStatusBars = !darkMode
+            }
+        }
+
         if (!isUnlocked) {
-            Column(
+            LaunchedEffect(Unit) {
+                startBiometricUnlock()
+            }
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.Center
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Text("novexa", style = MaterialTheme.typography.headlineMedium)
-                Spacer(Modifier.height(12.dp))
-                Text("Biometric unlock is primary. PIN can be used as fallback.")
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = {
-                    activity.authenticate(
-                        onSuccess = { isUnlocked = true },
-                        onFailure = {
-                            Toast.makeText(context, "Biometric unlock failed", Toast.LENGTH_SHORT).show()
+                Card(Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("novexa", style = MaterialTheme.typography.headlineMedium)
+                        Text(
+                            "Unlock your vault with biometrics.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        authError?.let {
+                            Text(
+                                text = it,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
                         }
-                    )
-                }) {
-                    Text("Unlock with biometrics")
-                }
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = pinInput,
-                    onValueChange = { pinInput = it.filter(Char::isDigit).take(MAX_PIN_LENGTH) },
-                    label = { Text("PIN fallback") }
-                )
-                Text("PIN length: $MIN_PIN_LENGTH-$MAX_PIN_LENGTH digits")
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = {
-                    if (store.verifyPin(pinInput)) {
-                        isUnlocked = true
-                    } else {
-                        Toast.makeText(context, "PIN is not valid", Toast.LENGTH_SHORT).show()
+                        Button(
+                            onClick = { startBiometricUnlock() },
+                            enabled = !authInProgress
+                        ) {
+                            Text(if (authInProgress) "Waiting for biometrics..." else "Unlock with biometrics")
+                        }
                     }
-                }) {
-                    Text("Unlock with PIN")
                 }
             }
             return@MaterialTheme
@@ -296,10 +328,6 @@ fun NovexaApp(activity: MainActivity) {
                     store.saveDarkMode(it)
                 },
                 onDismiss = { showSettings = false },
-                onSavePin = {
-                    store.savePin(it)
-                    Toast.makeText(context, "PIN saved", Toast.LENGTH_SHORT).show()
-                },
                 onBackup = { passphrase ->
                     val file = store.backup(passphrase)
                     Toast.makeText(context, "Backup saved to ${file.absolutePath}", Toast.LENGTH_LONG).show()
@@ -311,6 +339,16 @@ fun NovexaApp(activity: MainActivity) {
                     } else {
                         Toast.makeText(context, "Restore failed", Toast.LENGTH_SHORT).show()
                     }
+                },
+                onAddAccount = { account ->
+                    vault = vault.copy(accounts = vault.accounts + account)
+                    store.saveVault(vault)
+                    Toast.makeText(context, "Account saved", Toast.LENGTH_SHORT).show()
+                },
+                onAddCard = { card ->
+                    vault = vault.copy(cards = vault.cards + card)
+                    store.saveVault(vault)
+                    Toast.makeText(context, "Card saved", Toast.LENGTH_SHORT).show()
                 },
                 onUpdateVault = {
                     vault = it
@@ -361,11 +399,6 @@ fun NovexaApp(activity: MainActivity) {
 @Composable
 fun AccountsTab(accounts: List<AccountEntry>, onSave: (List<AccountEntry>) -> Unit) {
     val clipboard = LocalClipboardManager.current
-    val defaultLabels = listOf("Name", "Account Number", "IBAN", "Bank Name", "Phone Number", "Branch Name")
-    val defaultValues = remember { mutableStateListOf(*Array(defaultLabels.size) { "" }) }
-    val customFields = remember { mutableStateListOf<FieldValue>() }
-    var customKey by remember { mutableStateOf("") }
-    var customValue by remember { mutableStateOf("") }
     var expandedCustomId by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
@@ -374,65 +407,19 @@ fun AccountsTab(accounts: List<AccountEntry>, onSave: (List<AccountEntry>) -> Un
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item {
-            Text("Add Account", style = MaterialTheme.typography.titleMedium)
-            defaultLabels.forEachIndexed { index, label ->
-                OutlinedTextField(
-                    value = defaultValues[index],
-                    onValueChange = { defaultValues[index] = it },
-                    label = { Text(label) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(6.dp))
-            }
-
-            Text("Custom fields")
-            OutlinedTextField(
-                value = customKey,
-                onValueChange = { customKey = it },
-                label = { Text("Field name") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(6.dp))
-            OutlinedTextField(
-                value = customValue,
-                onValueChange = { customValue = it },
-                label = { Text("Field value") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(6.dp))
-            Button(onClick = {
-                if (customKey.isNotBlank()) {
-                    customFields.add(FieldValue(customKey, customValue, false))
-                    customKey = ""
-                    customValue = ""
-                }
-            }) {
-                Text("Add custom field")
-            }
-
-            Spacer(Modifier.height(6.dp))
-            Button(onClick = {
-                val defaults = defaultLabels.mapIndexed { index, label ->
-                    FieldValue(label, defaultValues[index], true)
-                }
-                val newEntry = AccountEntry(fields = defaults, customFields = customFields.toList())
-                onSave(accounts + newEntry)
-                defaultValues.indices.forEach { defaultValues[it] = "" }
-                customFields.clear()
-            }) {
-                Text("Save account")
-            }
-        }
+        item { Text("Add account entries from Settings.", style = MaterialTheme.typography.bodyMedium) }
 
         items(accounts, key = { it.id }) { account ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Account")
-                    account.fields.forEach { field ->
+                    normalizeAccountFields(account.fields)
+                        .filter { it.value.isNotBlank() }
+                        .forEach { field ->
                         FieldRow(field = field, onCopy = { clipboard.setText(AnnotatedString(field.value)) })
                     }
-                    if (account.customFields.isNotEmpty()) {
+                    val nonEmptyCustom = account.customFields.filter { it.value.isNotBlank() }
+                    if (nonEmptyCustom.isNotEmpty()) {
                         Text(
                             text = if (expandedCustomId == account.id) "Custom fields ▼" else "Custom fields ▶",
                             modifier = Modifier.clickable {
@@ -440,7 +427,7 @@ fun AccountsTab(accounts: List<AccountEntry>, onSave: (List<AccountEntry>) -> Un
                             }
                         )
                         if (expandedCustomId == account.id) {
-                            account.customFields.forEach { field ->
+                            nonEmptyCustom.forEach { field ->
                                 FieldRow(field = field, onCopy = { clipboard.setText(AnnotatedString(field.value)) })
                             }
                         }
@@ -454,9 +441,6 @@ fun AccountsTab(accounts: List<AccountEntry>, onSave: (List<AccountEntry>) -> Un
 @Composable
 fun CardsTab(cards: List<CardEntry>, onSave: (List<CardEntry>) -> Unit) {
     val clipboard = LocalClipboardManager.current
-    var cardType by remember { mutableStateOf("Physical") }
-    val cardLabels = listOf("Card Holder", "Card Number", "Expiry", "CVV", "Bank Name", "Notes")
-    val cardValues = remember { mutableStateListOf(*Array(cardLabels.size) { "" }) }
 
     LazyColumn(
         modifier = Modifier
@@ -464,46 +448,15 @@ fun CardsTab(cards: List<CardEntry>, onSave: (List<CardEntry>) -> Unit) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item {
-            Text("Add Debit Card", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = cardType == "Physical",
-                    onClick = { cardType = "Physical" },
-                    label = { Text("Physical") }
-                )
-                FilterChip(
-                    selected = cardType == "Virtual",
-                    onClick = { cardType = "Virtual" },
-                    label = { Text("Virtual") }
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            cardLabels.forEachIndexed { index, label ->
-                OutlinedTextField(
-                    value = cardValues[index],
-                    onValueChange = { cardValues[index] = it },
-                    label = { Text(label) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(6.dp))
-            }
-            Button(onClick = {
-                val fields = cardLabels.mapIndexed { index, label ->
-                    FieldValue(label, cardValues[index], true)
-                }
-                onSave(cards + CardEntry(type = cardType, fields = fields))
-                cardValues.indices.forEach { cardValues[it] = "" }
-            }) {
-                Text("Save card")
-            }
-        }
+        item { Text("Add card entries from Settings.", style = MaterialTheme.typography.bodyMedium) }
 
         items(cards, key = { it.id }) { card ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("${card.type} card")
-                    card.fields.forEach { field ->
+                    card.fields
+                        .filter { it.value.isNotBlank() }
+                        .forEach { field ->
                         FieldRow(field = field, onCopy = { clipboard.setText(AnnotatedString(field.value)) })
                     }
                 }
